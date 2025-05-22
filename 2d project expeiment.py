@@ -1,213 +1,253 @@
 import pygame
 import sys
-import random
-import os
 
-pygame.mixer.pre_init(44100, -16, 2, 512)
+# Initialize Pygame
 pygame.init()
-pygame.mixer.init()
 
-# --- SCREEN SETUP ---
-SCREEN_WIDTH, SCREEN_HEIGHT = 480, 640
+# Screen settings
+SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
+TILE_SIZE = 32
+MAP_ROWS = SCREEN_HEIGHT // TILE_SIZE
+MAP_COLS = SCREEN_WIDTH // TILE_SIZE
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-pygame.display.set_caption("Block Climber")
+pygame.display.set_caption("Cute Fantasy")
+
 clock = pygame.time.Clock()
+FPS = 60
 
-# --- COLORS ---
-GREEN = (34, 139, 34)
-BROWN = (139, 69, 19)
-RED = (200, 0, 0)
-BLUE = (0, 102, 204)
-YELLOW = (255, 215, 0)
-WHITE = (255, 255, 255)
-BLACK = (0, 0, 0)
-SKY = (135, 206, 235)
+# Colors - Pastel palette for Cute Fantasy
+COLOR_SKY = (180, 215, 255)
+COLOR_GRASS = (156, 234, 177)
+COLOR_WATER = (135, 206, 235)
+COLOR_TREE = (79, 121, 66)
+COLOR_FLOWER = (255, 182, 193)
+COLOR_STONE = (195, 195, 195)
+COLOR_PLAYER = (255, 105, 180)  # Hot pink cute character color
+COLOR_PATH = (255, 235, 205)
 
-# --- SOUND LOADING ---
-def load_sound(filename):
-    if os.path.exists(filename):
-        try:
-            return pygame.mixer.Sound(filename)
-        except pygame.error as e:
-            print(f"Error loading {filename}: {e}")
-    else:
-        print(f"Sound file {filename} not found!")
-    return None
+# Tile types
+TILE_GRASS = 0
+TILE_WATER = 1
+TILE_TREE = 2
+TILE_FLOWER = 3
+TILE_STONE = 4
+TILE_PATH = 5
 
-jump_sound = load_sound('jump.wav')
-coin_sound = load_sound('coin.wav')
-
-# --- CHARACTER IMAGE LOADING ---
-def load_character_image():
-    if os.path.exists('character.png'):
-        img = pygame.image.load('character.png').convert_alpha()
-        return pygame.transform.scale(img, (40, 40))
-    else:
-        print("character.png not found! Using a blue box instead.")
-        surf = pygame.Surface((40, 40), pygame.SRCALPHA)
-        surf.fill(BLUE)
-        return surf
-
-character_img = load_character_image()
-
-# --- PLAYER CLASS ---
+# A cute player character class
 class Player:
-    def __init__(self):
-        self.rect = pygame.Rect(SCREEN_WIDTH//2-20, SCREEN_HEIGHT-100, 40, 40)
-        self.image = character_img
-        self.velocity_y = 0
-        self.on_ground = False
-        self.score = 0
-
-    def update(self, blocks):
-        keys = pygame.key.get_pressed()
-        dx = 0
-        if keys[pygame.K_LEFT]:
-            dx = -5
-        if keys[pygame.K_RIGHT]:
-            dx = 5
-        self.rect.x += dx
-        self.velocity_y += 1  # gravity
-        if self.velocity_y > 10:
-            self.velocity_y = 10
-        self.rect.y += self.velocity_y
-
-        # Collision with blocks
-        self.on_ground = False
-        for block in blocks:
-            if self.rect.colliderect(block.rect) and self.velocity_y > 0:
-                self.rect.bottom = block.rect.top
-                self.velocity_y = 0
-                self.on_ground = True
-                self.score += 1
-
-        # Stay in bounds
-        if self.rect.left < 0:
-            self.rect.left = 0
-        if self.rect.right > SCREEN_WIDTH:
-            self.rect.right = SCREEN_WIDTH
-
-    def jump(self):
-        if self.on_ground:
-            self.velocity_y = -15
-            if jump_sound:
-                jump_sound.play()
-
-    def draw(self, surface):
-        surface.blit(self.image, self.rect.topleft)
-
-# --- BLOCK CLASS ---
-class Block:
-    def __init__(self, x, y, w=80, h=20):
-        self.rect = pygame.Rect(x, y, w, h)
-        self.color = random.choice([GREEN, RED, BLUE, YELLOW])
-        self.speed = 2
-
-    def update(self):
-        self.rect.y -= self.speed
-
-    def draw(self, surface):
-        pygame.draw.rect(surface, self.color, self.rect)
-
-# --- TREE EFFECT ---
-def draw_tree(x, y):
-    pygame.draw.rect(screen, BROWN, (x+15, y+30, 10, 30))
-    pygame.draw.circle(screen, GREEN, (x+20, y+25), 20)
-
-# --- COIN CLASS ---
-class Coin:
     def __init__(self, x, y):
-        self.rect = pygame.Rect(x, y, 20, 20)
-        self.collected = False
+        self.x = x  # in tiles
+        self.y = y
+        self.speed = 4  # pixels per frame
+        self.pixel_x = x * TILE_SIZE
+        self.pixel_y = y * TILE_SIZE
 
-    def update(self):
-        self.rect.y -= 2
+    def move(self, dx, dy, game_map):
+        # Calculate new tile position
+        new_x = self.pixel_x + dx * self.speed
+        new_y = self.pixel_y + dy * self.speed
+
+        # Boundaries in pixels
+        max_x = SCREEN_WIDTH - TILE_SIZE
+        max_y = SCREEN_HEIGHT - TILE_SIZE
+        new_x = max(0, min(new_x, max_x))
+        new_y = max(0, min(new_y, max_y))
+
+        # Calculate which tile the player would be on center-bottom for collision
+        center_x = new_x + TILE_SIZE//2
+        center_y = new_y + TILE_SIZE - 5  # slightly above bottom of tile for feet
+
+        tile_x = center_x // TILE_SIZE
+        tile_y = center_y // TILE_SIZE
+
+        # Check collision - can move if tile is not water or tree or stone
+        if 0 <= tile_x < MAP_COLS and 0 <= tile_y < MAP_ROWS:
+            tile = game_map[tile_y][tile_x]
+            if tile not in (TILE_WATER, TILE_TREE, TILE_STONE):
+                self.pixel_x = new_x
+                self.pixel_y = new_y
 
     def draw(self, surface):
-        if not self.collected:
-            pygame.draw.circle(surface, YELLOW, self.rect.center, 10)
-            pygame.draw.circle(surface, WHITE, (self.rect.centerx-3, self.rect.centery-3), 3)
+        # Draw a cute round player with eyes and smiling face
+        center = (self.pixel_x + TILE_SIZE // 2, self.pixel_y + TILE_SIZE // 2)
+        radius = TILE_SIZE // 2 - 2
+        # Body
+        pygame.draw.circle(surface, COLOR_PLAYER, center, radius)
+        # Eyes
+        eye_y_offset = -6
+        eye_x_offset = 6
+        eye_radius = 3
+        pygame.draw.circle(surface, (255, 255, 255), (center[0] - eye_x_offset, center[1] + eye_y_offset), eye_radius)
+        pygame.draw.circle(surface, (255, 255, 255), (center[0] + eye_x_offset, center[1] + eye_y_offset), eye_radius)
+        pygame.draw.circle(surface, (0, 0, 0), (center[0] - eye_x_offset, center[1] + eye_y_offset), 1)
+        pygame.draw.circle(surface, (0, 0, 0), (center[0] + eye_x_offset, center[1] + eye_y_offset), 1)
+        # Smile
+        smile_rect = pygame.Rect(0,0,10,6)
+        smile_rect.center = (center[0], center[1]+5)
+        pygame.draw.arc(surface, (0,0,0), smile_rect, 3.14, 0, 2)
 
-# --- GAME SETUP ---
-player = Player()
-blocks = [Block(SCREEN_WIDTH//2-40, SCREEN_HEIGHT-60)]
-coins = []
-tree_positions = [(30, SCREEN_HEIGHT-100), (400, SCREEN_HEIGHT-150), (200, SCREEN_HEIGHT-220)]
+def draw_tile(surface, tile, x, y):
+    rect = pygame.Rect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)
 
-font = pygame.font.SysFont("Comic Sans MS", 30, bold=True)
-game_over = False
+    if tile == TILE_GRASS:
+        pygame.draw.rect(surface, COLOR_GRASS, rect)
+        # Some grass details - little lighter lines
+        pygame.draw.line(surface, (170, 250, 190), (rect.left+5, rect.bottom-5), (rect.left+5, rect.top+5), 1)
+        pygame.draw.line(surface, (170, 250, 190), (rect.left+10, rect.bottom-10), (rect.left+10, rect.top+10), 1)
+    elif tile == TILE_WATER:
+        pygame.draw.rect(surface, COLOR_WATER, rect)
+        # Waves - white squiggles
+        for i in range(rect.left, rect.right, 8):
+            pygame.draw.arc(surface, (224, 239, 255), (i, rect.top+8, 8, 8), 3.14, 0, 1)
+    elif tile == TILE_TREE:
+        # brown trunk
+        trunk_rect = pygame.Rect(rect.centerx - 4, rect.bottom - 12, 8, 12)
+        pygame.draw.rect(surface, (120, 75, 35), trunk_rect)
+        # green leaves circle on top
+        pygame.draw.circle(surface, COLOR_TREE, (rect.centerx, rect.top + 12), 14)
+        # Some lighter green circles for leaf details
+        pygame.draw.circle(surface, (120, 160, 120), (rect.centerx - 7, rect.top + 8), 6)
+        pygame.draw.circle(surface, (120, 160, 120), (rect.centerx + 7, rect.top + 8), 6)
+    elif tile == TILE_FLOWER:
+        pygame.draw.rect(surface, COLOR_GRASS, rect)
+        # Draw cute flower: circle + petals
+        center = rect.center
+        pygame.draw.circle(surface, (255, 192, 203), center, 8)
+        # Petals
+        petal_offsets = [(-6, 0), (6, 0), (0, -6), (0, 6)]
+        for ox, oy in petal_offsets:
+            pygame.draw.circle(surface, (255, 105, 180), (center[0]+ox, center[1]+oy), 5)
+        # Flower center
+        pygame.draw.circle(surface, (255, 255, 255), center, 4)
+    elif tile == TILE_STONE:
+        pygame.draw.rect(surface, COLOR_STONE, rect)
+        # Stones darker spots
+        pygame.draw.circle(surface, (140, 140, 140), (rect.left+8, rect.top+8), 4)
+        pygame.draw.circle(surface, (140, 140, 140), (rect.right-8, rect.bottom-8), 3)
+    elif tile == TILE_PATH:
+        pygame.draw.rect(surface, COLOR_PATH, rect)
+    else:
+        pygame.draw.rect(surface, COLOR_GRASS, rect)
 
-# --- MAIN LOOP ---
-while True:
-    clock.tick(60)
-    jump_pressed = False
 
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-        if not game_over and event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_SPACE:
-                jump_pressed = True
-        if game_over and event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_r:
-                player = Player()
-                blocks = [Block(SCREEN_WIDTH//2-40, SCREEN_HEIGHT-60)]
-                coins = []
-                game_over = False
+# Define multiple maps as 2D lists of tile types
+maps = []
 
-    if not game_over:
-        # Add new block
-        if len(blocks) < 8 or blocks[-1].rect.y < SCREEN_HEIGHT - 120:
-            new_x = random.randint(0, SCREEN_WIDTH-80)
-            blocks.append(Block(new_x, SCREEN_HEIGHT+20))
-            # Sometimes add a coin
-            if random.random() < 0.5:
-                coins.append(Coin(new_x+30, SCREEN_HEIGHT))
+# Map 1: Forest clearing with water pond, flowers, and trees
+map1 = [
+    [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+    [2,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,0,0,0,2],
+    [2,0,0,0,0,0,0,0,1,1,1,1,0,3,3,0,0,0,0,2],
+    [2,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,2],
+    [2,0,0,0,0,0,0,1,1,1,1,1,1,0,0,0,0,0,0,2],
+    [2,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,2],
+    [2,0,0,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,2],
+    [2,0,3,3,0,0,0,0,0,0,0,0,0,0,0,0,3,3,0,2],
+    [2,0,3,3,0,0,0,2,2,0,0,2,2,0,0,0,3,3,0,2],
+    [2,0,0,0,0,0,0,2,2,0,0,2,2,0,0,0,0,0,0,2],
+    [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+    ]
 
-        # Update blocks and remove if off screen
-        for block in blocks:
-            block.update()
-        blocks = [b for b in blocks if b.rect.bottom > 0]
+maps.append(map1)
 
-        # Update coins
-        for coin in coins:
-            coin.update()
-            if player.rect.colliderect(coin.rect) and not coin.collected:
-                coin.collected = True
-                player.score += 5
-                if coin_sound:
-                    coin_sound.play()
-        coins = [c for c in coins if c.rect.bottom > 0 and not c.collected]
+# Map 2: Stone path in meadow with flowers and trees
+map2 = [
+    [0,0,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0],
+    [0,3,3,0,0,0,2,2,2,2,2,2,0,0,0,3,3,0,0,0],
+    [0,3,3,0,0,0,2,3,0,0,0,2,0,0,0,3,3,0,0,0],
+    [0,0,0,0,0,0,2,3,0,0,0,2,0,0,0,0,0,0,0,0],
+    [0,0,1,1,1,1,2,3,0,2,2,2,0,0,1,1,1,1,0,0],
+    [0,0,1,5,5,1,2,2,0,2,3,2,0,0,1,5,5,1,0,0],
+    [0,0,1,5,5,1,0,0,0,2,3,2,0,0,1,5,5,1,0,0],
+    [0,0,1,1,1,1,0,0,0,2,2,2,0,0,1,1,1,1,0,0],
+    [0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    ]
+maps.append(map2)
 
-        # Player jump (sound only on jump, not every frame)
-        if jump_pressed:
-            player.jump()
+# Map 3: Water lake with islands and flowers around
+map3 = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,3,0,0,0,0,0,0,3,1,1,1,1,1,1],
+    [1,1,1,3,3,0,0,0,2,2,2,2,2,0,0,3,3,1,1,1],
+    [1,1,0,0,0,0,0,2,2,0,0,0,2,2,0,0,0,0,1,1],
+    [1,1,0,0,3,0,0,2,2,0,0,0,2,2,0,3,0,0,1,1],
+    [1,1,0,0,3,0,0,0,0,0,3,3,0,0,0,3,0,0,1,1],
+    [1,1,0,0,0,0,0,0,3,0,0,0,0,0,0,0,0,0,1,1],
+    [1,1,1,0,0,3,3,0,3,0,0,3,3,0,0,0,1,1,1,1],
+    [1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1],
+    [1,1,1,1,1,1,0,0,0,0,0,0,0,1,1,1,1,1,1,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    ]
+maps.append(map3)
 
-        # Update player
-        player.update(blocks)
+# Current map index
+current_map = 0
 
-        # Game over if player falls off the bottom or top
-        if player.rect.top > SCREEN_HEIGHT or player.rect.bottom < 0:
-            game_over = True
+# Starting player position in tiles for each map
+player_start_positions = [
+    (1, 8),
+    (0, 9),
+    (5, 5),
+]
 
-    # Draw everything
-    screen.fill(SKY)
-    for tx, ty in tree_positions:
-        draw_tree(tx, ty)
-    for block in blocks:
-        block.draw(screen)
-    for coin in coins:
-        coin.draw(screen)
-    player.draw(screen)
+player = Player(*player_start_positions[current_map])
 
-    # Score
-    score_surf = font.render(f"Score: {player.score}", True, BLACK)
-    screen.blit(score_surf, (10, 10))
+# Font for UI
+font = pygame.font.SysFont('Comic Sans MS', 20)
 
-    # Game over
-    if game_over:
-        go_surf = font.render("GAME OVER! Press R to restart", True, RED)
-        screen.blit(go_surf, (40, SCREEN_HEIGHT//2-40))
+def draw_map(surface, game_map):
+    for y in range(len(game_map)):
+        for x in range(len(game_map[0])):
+            draw_tile(surface, game_map[y][x], x, y)
 
-    pygame.display.flip()
+def draw_ui(surface):
+    text = font.render(f'Cute Fantasy - Map {current_map+1} (Press 1,2,3 to switch maps)', True, (80, 80, 80))
+    surface.blit(text, (10, 10))
+
+def main():
+    global current_map, player
+    running = True
+    while running:
+        clock.tick(FPS)
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                # Switch maps with keys 1,2,3
+                if event.key == pygame.K_1:
+                    current_map = 0
+                    player = Player(*player_start_positions[current_map])
+                elif event.key == pygame.K_2:
+                    current_map = 1
+                    player = Player(*player_start_positions[current_map])
+                elif event.key == pygame.K_3:
+                    current_map = 2
+                    player = Player(*player_start_positions[current_map])
+
+        keys = pygame.key.get_pressed()
+        dx = keys[pygame.K_RIGHT] - keys[pygame.K_LEFT]
+        dy = keys[pygame.K_DOWN] - keys[pygame.K_UP]
+
+        # Normalizing movement so diagonal speed is same
+        if dx != 0 and dy != 0:
+            dx *= 0.7
+            dy *= 0.7
+
+        player.move(dx, dy, maps[current_map])
+
+        # Draw everything
+        screen.fill(COLOR_SKY)
+        draw_map(screen, maps[current_map])
+        player.draw(screen)
+        draw_ui(screen)
+
+        pygame.display.flip()
+
+    pygame.quit()
+    sys.exit()
+
+if __name__ == "__main__":
+    main()
+
